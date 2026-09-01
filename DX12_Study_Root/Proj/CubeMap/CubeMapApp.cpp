@@ -1,4 +1,4 @@
-//***************************************************************************************
+ï»¿//***************************************************************************************
 // CubeMapApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
 //***************************************************************************************
 
@@ -12,10 +12,14 @@
 #include "Ssao.h"
 
 //osb
-//Imgui ÀÎÅ¬·çµå
+//Imgui ì¸í´ë£¨ë“œ
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx12.h"
+
+#include "SkinnedData.h"
+#include "FBXUtil/FbxLoader.h"
+
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -25,6 +29,24 @@ using namespace DirectX::PackedVector;
 #pragma comment(lib, "D3D12.lib")
 
 const int gNumFrameResources = 3;
+
+struct SkinnedModelInstance
+{
+	SkinnedData* SkinnedInfo = nullptr;
+	std::vector<DirectX::XMFLOAT4X4> FinalTransforms;
+	std::string ClipName;
+	float TimePos = 0.0f;
+
+	void UpdateSkinnedAnimation(float dt)
+	{
+		TimePos += dt;
+
+		if (TimePos > SkinnedInfo->GetClipEndTime(ClipName))
+			TimePos = 0.0f;
+
+		SkinnedInfo->GetFinalTransforms(ClipName, TimePos, FinalTransforms);
+	}
+};
 
 // Lightweight structure stores parameters to draw a shape.  This will
 // vary from app-to-app.
@@ -59,14 +81,21 @@ struct RenderItem
     UINT IndexCount = 0;
     UINT StartIndexLocation = 0;
     int BaseVertexLocation = 0;
+
+	//osb
+	//ìŠ¤í‚¤ë‹ ë Œë” ì•„ì´í…œì—ë§Œ í•´ë‹¹
+	UINT SkinnedCBIndex = -1;
+	//ìŠ¤í‚¤ë‹ë˜ì§€ ì•ŠëŠ” ì•„ì´í…œì€ nullptr
+	SkinnedModelInstance* SkinnedModelInst = nullptr;
 };
 
 enum class RenderLayer : int
 {
 	Opaque = 0,
+	SkinnedOpaque,
 	Sky,
-	Debug, //osb ±×¸²ÀÚ¸Ê µğ¹ö±× ºä¿ë
-	SsaoDebug, //ssao¸Ê µğ¹ö±× ºä¿ë
+	Debug, //osb ê·¸ë¦¼ìë§µ ë””ë²„ê·¸ ë·°ìš©
+	SsaoDebug, //ssaoë§µ ë””ë²„ê·¸ ë·°ìš©
 	Count
 };
 
@@ -81,7 +110,7 @@ public:
     virtual bool Initialize()override;
 
 	//osb
-	//imgui srvÀÎµ¦½º getter
+	//imgui srvì¸ë±ìŠ¤ getter
 	UINT GetImGuiSrvIndex() const;
 
 private:
@@ -99,18 +128,19 @@ private:
 	void UpdateMaterialBuffer(const GameTimer& gt);
 	void UpdateMainPassCB(const GameTimer& gt);
 	//osb
-	//shadowmapappÀÇ ÇÔ¼ö °¡Á®¿Å
+	//shadowmapappì˜ í•¨ìˆ˜ ê°€ì ¸ì˜®
 	void UpdateShadowTransform(const GameTimer& gt);
 	void UpdateShadowPassCB(const GameTimer& gt);
+	void UpdateSkinnedCBs(const GameTimer& gt);
 
 	//osb
-	//ssaoApp¿¡¼­ °¡Á®¿Â Èû¼öµé
+	//ssaoAppì—ì„œ ê°€ì ¸ì˜¨ í˜ìˆ˜ë“¤
 	void BuildSsaoRootSignature();
 	void UpdateSsaoCB(const GameTimer& gt);
 	void DrawNormalsAndDepth();
 	
 	//osb
-	//d3dappÀÇ °¡»óÇÔ¼ö ¿À¹ö¶óÀÌµù
+	//d3dappì˜ ê°€ìƒí•¨ìˆ˜ ì˜¤ë²„ë¼ì´ë”©
 	void CreateRtvAndDsvDescriptorHeaps() override;
 
 	void LoadTextures();
@@ -119,7 +149,7 @@ private:
     void BuildShadersAndInputLayout();
     void BuildShapeGeometry();
 	//osb
-	//shadowmap¿ë Áö¿À¸ŞÆ®¸® ÇÔ¼ö Ãß°¡
+	//shadowmapìš© ì§€ì˜¤ë©”íŠ¸ë¦¬ í•¨ìˆ˜ ì¶”ê°€
 	void BuildDebugQuadGeometry();
     void BuildSkullGeometry();
     void BuildPSOs();
@@ -129,11 +159,13 @@ private:
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 	//osb
 	void DrawSceneToShadowMap();
+	//
+	void LoadSkinnedModel();
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 	
 	//osb
-	//µğ½ºÅ©¸³ÅÍ ÀÎµ¦½º ¹ö±×¸¦ °ŞÀº µÚ Àı´ë ÀÎµ¦½º·Î Á÷Á¢ °è»êÇÏ´Â ¹æ½ÄÀÇ ÇÔ¼ö¸¦ Ãß°¡
+	//ë””ìŠ¤í¬ë¦½í„° ì¸ë±ìŠ¤ ë²„ê·¸ë¥¼ ê²ªì€ ë’¤ ì ˆëŒ€ ì¸ë±ìŠ¤ë¡œ ì§ì ‘ ê³„ì‚°í•˜ëŠ” ë°©ì‹ì˜ í•¨ìˆ˜ë¥¼ ì¶”ê°€
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetCpuSrv(int index) const;
 	CD3DX12_GPU_DESCRIPTOR_HANDLE GetGpuSrv(int index) const;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDsv(int index) const;
@@ -141,9 +173,9 @@ private:
 
 
 	//osb
-	//ImGui init ÇÔ¼ö
+	//ImGui init í•¨ìˆ˜
 	void InitImGui();
-	//ImgGui ¼¼ÆÃ ÇÔ¼ö
+	//ImgGui ì„¸íŒ… í•¨ìˆ˜
 	void SetImGui(const GameTimer& gt);
 
 
@@ -157,7 +189,7 @@ private:
 
     ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
 	//osb
-	//ssao ·çÆ®½Ã±×´ÏÃÄ º¯¼ö Ãß°¡
+	//ssao ë£¨íŠ¸ì‹œê·¸ë‹ˆì³ ë³€ìˆ˜ ì¶”ê°€
 	ComPtr<ID3D12RootSignature> mSsaoRootSignature = nullptr;
 	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
 
@@ -168,13 +200,15 @@ private:
 	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
+	//osb
+	//ìŠ¤í‚¤ë‹ ì¸í’‹ ë ˆì´ì–´ ì¶”ê°€
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mSkinnedInputLayout;
  
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
 
 	// Render items divided by PSO.
 	std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
-
 
     PassConstants mMainPassCB;
 
@@ -183,7 +217,7 @@ private:
     POINT mLastMousePos;
 
 
-	//sk box ¼³Á¤ °ü·Ã º¯¼öµé
+	//sk box ì„¤ì • ê´€ë ¨ ë³€ìˆ˜ë“¤
 	bool mSkyEnabled = true;
 	std::array<UINT, 4> mSkyTexHeapIndices = { 0, 0, 0, 0 };
 	UINT mCurrSkyIndex = 0; //0 = grass
@@ -191,23 +225,23 @@ private:
 	UINT mSkyTexHeapIndex = 0;
 
 	//osb
-	//imgui srvÀÎµ¦½Ì °íÁ¤
+	//imgui srvì¸ë±ì‹± ê³ ì •
 	UINT mImguiSrvIndex = 7;
 
 	//osb
-	//shadowmap °ü·Ã º¯¼öµé
-	std::unique_ptr<ShadowMap> mShadowMap; //±×¸²ÀÚ¸Ê ·»´õ Å¸°Ù °´Ã¼
-	DirectX::BoundingSphere mSceneBounds;  //¾À ÀüÃ¼¸¦ °¨½Î´Â °¡»óÀÇ ±¸ -> ¶óÆ¼À¸ ÀıµÎÃ¼ °è»ê ±âÁØ
-	float mLightNearZ = 0.0f; //ºû ½ÃÁ¡¿¡¼­ Ä«¸Ş¶óÀÇ near, far Æò¸é °Å¸®
+	//shadowmap ê´€ë ¨ ë³€ìˆ˜ë“¤
+	std::unique_ptr<ShadowMap> mShadowMap; //ê·¸ë¦¼ìë§µ ë Œë” íƒ€ê²Ÿ ê°ì²´
+	DirectX::BoundingSphere mSceneBounds;  //ì”¬ ì „ì²´ë¥¼ ê°ì‹¸ëŠ” ê°€ìƒì˜ êµ¬ -> ë¼í‹°ìœ¼ ì ˆë‘ì²´ ê³„ì‚° ê¸°ì¤€
+	float mLightNearZ = 0.0f; //ë¹› ì‹œì ì—ì„œ ì¹´ë©”ë¼ì˜ near, far í‰ë©´ ê±°ë¦¬
 	float mLightFarZ = 0.0f;
-	DirectX::XMFLOAT3 mLightPosW; //ºûÀÇ °¡»ó À§Ä¡
-	DirectX::XMFLOAT4X4 mLightView = MathHelper::Identity4x4(); //ºû ½ÃÁ¡¿¡¼­ view, projÇà·Ä
+	DirectX::XMFLOAT3 mLightPosW; //ë¹›ì˜ ê°€ìƒ ìœ„ì¹˜
+	DirectX::XMFLOAT4X4 mLightView = MathHelper::Identity4x4(); //ë¹› ì‹œì ì—ì„œ view, projí–‰ë ¬
 	DirectX::XMFLOAT4X4 mLightProj = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 mShadowTransform = MathHelper::Identity4x4(); //¿ùµå ÁÂÇ¥ -> ±×¸²ÀÚ¸Ê ÅØ½ºÃÄ ÁÂÇ¥ º¯È¯ ÇàU
-	PassConstants mShadowPassCB; //±×¸²ÀÚ ÆĞ½º Àü¿ë PassConstants
-	UINT mShadowMapHeapIndex = 0; //srv Èü¿¡¼­ ±×¸²ÀÚ¸Ê À§Ä¡
+	DirectX::XMFLOAT4X4 mShadowTransform = MathHelper::Identity4x4(); //ì›”ë“œ ì¢Œí‘œ -> ê·¸ë¦¼ìë§µ í…ìŠ¤ì³ ì¢Œí‘œ ë³€í™˜ í–‰ë¼
+	PassConstants mShadowPassCB; //ê·¸ë¦¼ì íŒ¨ìŠ¤ ì „ìš© PassConstants
+	UINT mShadowMapHeapIndex = 0; //srv í™ì—ì„œ ê·¸ë¦¼ìë§µ ìœ„ì¹˜
 	bool mShowShadowDebug = false;
-	//ºû È¸Àü¿¡ ´ëÇÑ º¯¼ö
+	//ë¹› íšŒì „ì— ëŒ€í•œ ë³€ìˆ˜
 	float mLightRotationAngle = 0.0f;
 	XMFLOAT3 mBaseLightDirections[3] = {
 		XMFLOAT3(0.57735f, -0.57735f, 0.57735f),
@@ -218,11 +252,26 @@ private:
 	bool mLightRotate = true;
 
 	//osb
-	//Ssao °ü·Ã º¯¼öµé
+	//Ssao ê´€ë ¨ ë³€ìˆ˜ë“¤
 	std::unique_ptr<Ssao> mSsao;
 	UINT mSsaoHeapIndexStart = 0;
 	bool mSsaoEnabled = true;
 	bool mShowSsaoDebug = false;
+
+	//osb
+	//ìŠ¤í‚¤ë‹ ê´€ë ¨ ë³€ìˆ˜ë“¤
+	//fbxì—ì„œ ì½ì–´ì˜¨ ìŠ¤í‚¤ë‹ ë°ì´í„°(ë³¸ ê³„ì¸µ, ë³¸ì˜¤í”„ì…‹, ì• ë‹ˆë©”ì´ì…˜ í´ë¦½)
+	SkinnedData mSkinnedInfo;
+
+	//ì• ë‹ˆë©”ì´ì…˜ ì¬ìƒ ìƒíƒœë¥¼ ë“¤ê³  ìˆëŠ” ì¸ìŠ¤í„´ìŠ¤
+	std::unique_ptr<SkinnedModelInstance> mSkinnedModelInst;
+
+	//ì¬ìƒ ì¤‘ì¸ í´ë¦½ ì´ë¦„
+	std::string mSkinnedClipName;
+
+	//ë¡œë”ê°€ ì•Œë ¤ì¤€ í´ë¦½ ëª©ë¡ (ImGui ì½¤ë³´ë°•ìŠ¤ìš©)
+	std::vector<std::string> mClipNames;
+
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -256,7 +305,7 @@ CubeMapApp::CubeMapApp(HINSTANCE hInstance)
 CubeMapApp::~CubeMapApp()
 {
 	//osb
-	//ImGui ÇØÁ¦
+	//ImGui í•´ì œ
 	if (md3dDevice != nullptr)
 		FlushCommandQueue();
 
@@ -270,6 +319,7 @@ bool CubeMapApp::Initialize()
     if(!D3DApp::Initialize())
         return false;
 
+
     // Reset the command list to prep for initialization commands.
     ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
@@ -281,10 +331,10 @@ bool CubeMapApp::Initialize()
  
 	//osb
 	mSceneBounds.Center = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	mSceneBounds.Radius = sqrtf(10.0f * 10.0f + 15.0f * 15.0f);  // ¾À Å©±â¿¡ ¸Â°Ô Á¶Á¤ °¡´É
-	//±×¸²ÀÚ¸Ê »ı¼º
+	mSceneBounds.Radius = sqrtf(10.0f * 10.0f + 15.0f * 15.0f);  // ì”¬ í¬ê¸°ì— ë§ê²Œ ì¡°ì • ê°€ëŠ¥
+	//ê·¸ë¦¼ìë§µ ìƒì„±
 	mShadowMap = std::make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
-	//mSsaoµµ BuildDescriptorHeaps()º¸´Ù ¸ÕÀú »ı¼º
+	//mSsaoë„ BuildDescriptorHeaps()ë³´ë‹¤ ë¨¼ì € ìƒì„±
 	mSsao = std::make_unique<Ssao>(md3dDevice.Get(), mCommandList.Get(), mClientWidth, mClientHeight);
 
 
@@ -297,6 +347,7 @@ bool CubeMapApp::Initialize()
     BuildShapeGeometry();
     BuildSkullGeometry();
 	BuildDebugQuadGeometry();
+	LoadSkinnedModel();
 	BuildMaterials();
     BuildRenderItems();
     BuildFrameResources();
@@ -358,13 +409,13 @@ void CubeMapApp::Update(const GameTimer& gt)
         CloseHandle(eventHandle);
     }
 
-	//È¸Àü °¢µµ Áõ°¡´Â mLightRotate°¡ trueÀÏ ¶§¸¸
+	//íšŒì „ ê°ë„ ì¦ê°€ëŠ” mLightRotateê°€ trueì¼ ë•Œë§Œ
 	if (mLightRotate)
 	{
 		mLightRotationAngle += 0.1f * gt.DeltaTime();
 	}
 
-	//¹æÇâ Àç°è»êÀº Ç×»ó ¼öÇàÇÏµµ·Ï ÇÔ. Ã¼Å© ÇØÁ¦ ½Ã¿£ ¸¶Áö¸· °¢µµ·Î °íÁ¤µÈ »óÅÂ À¯Áö
+	//ë°©í–¥ ì¬ê³„ì‚°ì€ í•­ìƒ ìˆ˜í–‰í•˜ë„ë¡ í•¨. ì²´í¬ í•´ì œ ì‹œì—” ë§ˆì§€ë§‰ ê°ë„ë¡œ ê³ ì •ëœ ìƒíƒœ ìœ ì§€
 	XMMATRIX R = XMMatrixRotationY(mLightRotationAngle);
 	for (int i = 0; i < 3; ++i)
 	{
@@ -375,14 +426,15 @@ void CubeMapApp::Update(const GameTimer& gt)
 
 	AnimateMaterials(gt);
 	UpdateObjectCBs(gt);
+	UpdateSkinnedCBs(gt);
 	UpdateMaterialBuffer(gt);
 	//osb
-	//MainPassCBº¸´Ù ¸ÕÀú
+	//MainPassCBë³´ë‹¤ ë¨¼ì €
 	UpdateShadowTransform(gt);
 	UpdateMainPassCB(gt);
-	//MainPassCBº¸´Ù ÀÌÈÄ
+	//MainPassCBë³´ë‹¤ ì´í›„
 	UpdateShadowPassCB(gt);
-	//¹İµå½Ã UpdateMainPassCB() ÀÌÈÄ
+	//ë°˜ë“œì‹œ UpdateMainPassCB() ì´í›„
 	UpdateSsaoCB(gt);
 }
 
@@ -399,24 +451,24 @@ void CubeMapApp::Draw(const GameTimer& gt)
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
 	auto matBuffer = mCurrFrameResource->MaterialBuffer->Resource();
-	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
+	mCommandList->SetGraphicsRootShaderResourceView(3, matBuffer->GetGPUVirtualAddress());
 
-	//±×¸²ÀÚ¸Ê ÆĞ½º
+	//ê·¸ë¦¼ìë§µ íŒ¨ìŠ¤
 	DrawSceneToShadowMap();
 
-	//³ë¸Ö/±íÀÌ ÇÁ¸®ÆĞ½º
+	//ë…¸ë©€/ê¹Šì´ í”„ë¦¬íŒ¨ìŠ¤
 	DrawNormalsAndDepth();
 
-	//ssao °è»ê - ·çÆ® ½Ã±×´ÏÃ³¸¦ ssao Àü¿ëÀ¸·Î ÀüÈ¯
+	//ssao ê³„ì‚° - ë£¨íŠ¸ ì‹œê·¸ë‹ˆì²˜ë¥¼ ssao ì „ìš©ìœ¼ë¡œ ì „í™˜
 	mCommandList->SetGraphicsRootSignature(mSsaoRootSignature.Get());
 	mSsao->ComputeSsao(mCommandList.Get(), mCurrFrameResource, 3);
 
-	//¸ŞÀÎ ·»´õ¸µ - ·çÆ® ½Ã±×´ÏÃ³¸¦ ´Ù½Ã ¸ŞÀÎÀ¸·Î ÀüÈ¯
+	//ë©”ì¸ ë Œë”ë§ - ë£¨íŠ¸ ì‹œê·¸ë‹ˆì²˜ë¥¼ ë‹¤ì‹œ ë©”ì¸ìœ¼ë¡œ ì „í™˜
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
-	//·çÆ® ½Ã±×´ÏÃ³°¡ ¹Ù²î¾úÀ¸´Ï ¹ÙÀÎµùµé ´Ù½Ã ¼³Á¤
+	//ë£¨íŠ¸ ì‹œê·¸ë‹ˆì²˜ê°€ ë°”ë€Œì—ˆìœ¼ë‹ˆ ë°”ì¸ë”©ë“¤ ë‹¤ì‹œ ì„¤ì •
 	matBuffer = mCurrFrameResource->MaterialBuffer->Resource();
-	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
+	mCommandList->SetGraphicsRootShaderResourceView(3, matBuffer->GetGPUVirtualAddress());
 
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
@@ -424,39 +476,42 @@ void CubeMapApp::Draw(const GameTimer& gt)
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
 		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-	//¹é¹öÆÛ¸¸ Å¬¸®¾î. ±íÀÌ¹öÆÛ´Â DrawNormalsAndDepth()¿¡¼­ ÀÌ¹Ì Ã¤¿üÀ¸´Ï ´Ù½Ã Å¬¸®¾îÇÏ¸é ¾È µÊ
+	//ë°±ë²„í¼ë§Œ í´ë¦¬ì–´. ê¹Šì´ë²„í¼ëŠ” DrawNormalsAndDepth()ì—ì„œ ì´ë¯¸ ì±„ì› ìœ¼ë‹ˆ ë‹¤ì‹œ í´ë¦¬ì–´í•˜ë©´ ì•ˆ ë¨
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
 
 	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
 	auto passCB = mCurrFrameResource->PassCB->Resource();
-	mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
-	//½ºÄ«ÀÌ¹Ú½º (¼±ÅÃµÈ Å¥ºê¸Ê)
+	//ìŠ¤ì¹´ì´ë°•ìŠ¤ (ì„ íƒëœ íë¸Œë§µ)
 	CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 	skyTexDescriptor.Offset(mSkyTexHeapIndices[mCurrSkyIndex], mCbvSrvDescriptorSize);
-	mCommandList->SetGraphicsRootDescriptorTable(3, skyTexDescriptor);
+	mCommandList->SetGraphicsRootDescriptorTable(4, skyTexDescriptor);
 
-	//±×¸²ÀÚ¸Ê
+	//ê·¸ë¦¼ìë§µ
 	CD3DX12_GPU_DESCRIPTOR_HANDLE shadowMapDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 	shadowMapDescriptor.Offset(mShadowMapHeapIndex, mCbvSrvDescriptorSize);
-	mCommandList->SetGraphicsRootDescriptorTable(4, shadowMapDescriptor);
+	mCommandList->SetGraphicsRootDescriptorTable(5, shadowMapDescriptor);
 
-	//ssao¸Ê - mSsao°¡ Á÷Á¢ ¾Ë·ÁÁÖ´Â ÇÚµé »ç¿ë 
+	//ssaoë§µ - mSsaoê°€ ì§ì ‘ ì•Œë ¤ì£¼ëŠ” í•¸ë“¤ ì‚¬ìš© 
 	if (mSsaoEnabled)
 	{
-		mCommandList->SetGraphicsRootDescriptorTable(5, mSsao->AmbientMapSrv());
+		mCommandList->SetGraphicsRootDescriptorTable(6, mSsao->AmbientMapSrv());
 	}
 	else
 	{
-		mCommandList->SetGraphicsRootDescriptorTable(5, GetGpuSrv(2));  // white ÅØ½ºÃ³ = °¡¸² ¾øÀ½
+		mCommandList->SetGraphicsRootDescriptorTable(6, GetGpuSrv(2));  // white í…ìŠ¤ì²˜ = ê°€ë¦¼ ì—†ìŒ
 	}
 
-	//µğÇ»Áî ÅØ½ºÃ³ ¹è¿­ - ·çÆ® ÆÄ¶ó¹ÌÅÍ ÀÎµ¦½º 5 -> 6
-	mCommandList->SetGraphicsRootDescriptorTable(6, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	//ë””í“¨ì¦ˆ í…ìŠ¤ì²˜ ë°°ì—´ 
+	mCommandList->SetGraphicsRootDescriptorTable(7, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	mCommandList->SetPipelineState(mPSOs["opaque"].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+	mCommandList->SetPipelineState(mPSOs["skinnedOpaque"].Get());
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::SkinnedOpaque]);
 
 	mCommandList->SetPipelineState(mPSOs["sky"].Get());
 	if (mSkyEnabled)
@@ -499,7 +554,7 @@ void CubeMapApp::Draw(const GameTimer& gt)
 void CubeMapApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
 	//osb
-	//¸¶¿ì½º ÀÔ·Â ÇÔ¼ö¿¡ °¡µå Ãß°¡
+	//ë§ˆìš°ìŠ¤ ì…ë ¥ í•¨ìˆ˜ì— ê°€ë“œ ì¶”ê°€
 	if (ImGui::GetCurrentContext() 
 	 && ImGui::GetIO().WantCaptureMouse) return;
 
@@ -512,7 +567,7 @@ void CubeMapApp::OnMouseDown(WPARAM btnState, int x, int y)
 void CubeMapApp::OnMouseUp(WPARAM btnState, int x, int y)
 {
 	//osb
-	//¸¶¿ì½º ÀÔ·Â ÇÔ¼ö¿¡ °¡µå Ãß°¡
+	//ë§ˆìš°ìŠ¤ ì…ë ¥ í•¨ìˆ˜ì— ê°€ë“œ ì¶”ê°€
 	if (ImGui::GetCurrentContext()
 		&& ImGui::GetIO().WantCaptureMouse) return;
 
@@ -522,7 +577,7 @@ void CubeMapApp::OnMouseUp(WPARAM btnState, int x, int y)
 void CubeMapApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
 	//osb
-	//¸¶¿ì½º ÀÔ·Â ÇÔ¼ö¿¡ °¡µå Ãß°¡
+	//ë§ˆìš°ìŠ¤ ì…ë ¥ í•¨ìˆ˜ì— ê°€ë“œ ì¶”ê°€
 	if (ImGui::GetCurrentContext()
 		&& ImGui::GetIO().WantCaptureMouse) return;
 
@@ -634,7 +689,7 @@ void CubeMapApp::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
 
 	//osb
-	//ssaoApp ¼Ò½º °¡Á®¿Å
+	//ssaoApp ì†ŒìŠ¤ ê°€ì ¸ì˜®
 	XMMATRIX T(
 		0.5f, 0.0f, 0.0f, 0.0f,
 		0.0f, -0.5f, 0.0f, 0.0f,
@@ -644,7 +699,7 @@ void CubeMapApp::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&mMainPassCB.ViewProjTex, XMMatrixTranspose(viewProjTex));
 
 	//osb
-	//±×¸²ÀÚ º¯È¯ Çà·Äµµ ¸ŞÀÎ ÆĞ½º CB¿¡ °°ÀÌ Ã¤¿ò
+	//ê·¸ë¦¼ì ë³€í™˜ í–‰ë ¬ë„ ë©”ì¸ íŒ¨ìŠ¤ CBì— ê°™ì´ ì±„ì›€
 	XMMATRIX shadowTransform = XMLoadFloat4x4(&mShadowTransform);
 	XMStoreFloat4x4(&mMainPassCB.ShadowTransform, XMMatrixTranspose(shadowTransform));
 
@@ -669,7 +724,7 @@ void CubeMapApp::UpdateMainPassCB(const GameTimer& gt)
 
 void CubeMapApp::UpdateShadowTransform(const GameTimer& gt)
 {
-	//¸ŞÀÎ ¹æÇâ±¤(Lights[0])À» ±×¸²ÀÚ¸¦ ¸¸µå´Â ºûÀ¸·Î »ç¿ë
+	//ë©”ì¸ ë°©í–¥ê´‘(Lights[0])ì„ ê·¸ë¦¼ìë¥¼ ë§Œë“œëŠ” ë¹›ìœ¼ë¡œ ì‚¬ìš©
 	XMVECTOR lightDir = XMLoadFloat3(&mMainPassCB.Lights[0].Direction);
 	XMVECTOR lightPos = -2.0f * mSceneBounds.Radius * lightDir;
 	XMVECTOR targetPos = XMLoadFloat3(&mSceneBounds.Center);
@@ -678,7 +733,7 @@ void CubeMapApp::UpdateShadowTransform(const GameTimer& gt)
 
 	XMStoreFloat3(&mLightPosW, lightPos);
 
-	//¾À ¹Ù¿îµù ±¸¸¦ ºûÀÇ ½ÃÁ¡ °ø°£À¸·Î ¿Å°Ü¼­ Á÷±³Åõ¿µ ¹üÀ§¸¦ °è»ê
+	//ì”¬ ë°”ìš´ë”© êµ¬ë¥¼ ë¹›ì˜ ì‹œì  ê³µê°„ìœ¼ë¡œ ì˜®ê²¨ì„œ ì§êµíˆ¬ì˜ ë²”ìœ„ë¥¼ ê³„ì‚°
 	XMFLOAT3 sphereCenterLS;
 	XMStoreFloat3(&sphereCenterLS, XMVector3TransformCoord(targetPos, lightView));
 
@@ -693,7 +748,7 @@ void CubeMapApp::UpdateShadowTransform(const GameTimer& gt)
 	mLightFarZ = f;
 	XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(l, r, b, t, n, f);
 
-	//NDC [-1,1] -> ÅØ½ºÃ³ ÁÂÇ¥ [0,1] º¯È¯ Çà·Ä
+	//NDC [-1,1] -> í…ìŠ¤ì²˜ ì¢Œí‘œ [0,1] ë³€í™˜ í–‰ë ¬
 	XMMATRIX T(
 		0.5f, 0.0f, 0.0f, 0.0f,
 		0.0f, -0.5f, 0.0f, 0.0f,
@@ -731,9 +786,28 @@ void CubeMapApp::UpdateShadowPassCB(const GameTimer& gt)
 	mShadowPassCB.NearZ = mLightNearZ;
 	mShadowPassCB.FarZ = mLightFarZ;
 
-	//±×¸²ÀÚ ÆĞ½º´Â 1¹ø ½½·Ô¿¡ ÀúÀåÇÏ°í ¸ŞÀÎ ÆĞ½º´Â 0¹ø
+	//ê·¸ë¦¼ì íŒ¨ìŠ¤ëŠ” 1ë²ˆ ìŠ¬ë¡¯ì— ì €ì¥í•˜ê³  ë©”ì¸ íŒ¨ìŠ¤ëŠ” 0ë²ˆ
 	auto currPassCB = mCurrFrameResource->PassCB.get();
 	currPassCB->CopyData(1, mShadowPassCB);
+}
+
+void CubeMapApp::UpdateSkinnedCBs(const GameTimer& gt)
+{
+	if (mSkinnedModelInst == nullptr)
+		return;
+
+	auto currSkinnedCB = mCurrFrameResource->SkinnedCB.get();
+
+	mSkinnedModelInst->UpdateSkinnedAnimation(gt.DeltaTime());
+
+	SkinnedConstants skinnedConstants;
+
+	std::copy(
+		std::begin(mSkinnedModelInst->FinalTransforms),
+		std::end(mSkinnedModelInst->FinalTransforms),
+		&skinnedConstants.BoneTransforms[0]);
+
+	currSkinnedCB->CopyData(0, skinnedConstants);
 }
 
 void CubeMapApp::BuildSsaoRootSignature()
@@ -847,11 +921,13 @@ void CubeMapApp::DrawNormalsAndDepth()
 	mCommandList->OMSetRenderTargets(1, &normalMapRtv, true, &DepthStencilView());
 
 	auto passCB = mCurrFrameResource->PassCB->Resource();
-	mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
 	mCommandList->SetPipelineState(mPSOs["drawNormals"].Get());
-
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+	mCommandList->SetPipelineState(mPSOs["skinnedDrawNormals"].Get());
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::SkinnedOpaque]);
 
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(normalMap,
 		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
@@ -859,7 +935,7 @@ void CubeMapApp::DrawNormalsAndDepth()
 
 void CubeMapApp::CreateRtvAndDsvDescriptorHeaps()
 {
-	//³ë¸Ö¸Ê1, ¾Úºñ¾ğÆ®¸Ê2  rtv 3°³ Ãß°¡
+	//ë…¸ë©€ë§µ1, ì•°ë¹„ì–¸íŠ¸ë§µ2  rtv 3ê°œ ì¶”ê°€
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
 	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 3;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -868,7 +944,7 @@ void CubeMapApp::CreateRtvAndDsvDescriptorHeaps()
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
 		&rtvHeapDesc, IID_PPV_ARGS(mRtvHeap.GetAddressOf())));
 
-	//dsvÈüÀº ±×´ë·Î 2°³ - ssao´Â ¸ŞÀÎ ±íÀÌ¹öÆÛ¸¦ Àç»ç¿ëÇØ¼­ º°µµÀÇ dsv ÇÊ¿ä¾øÀ½
+	//dsví™ì€ ê·¸ëŒ€ë¡œ 2ê°œ - ssaoëŠ” ë©”ì¸ ê¹Šì´ë²„í¼ë¥¼ ì¬ì‚¬ìš©í•´ì„œ ë³„ë„ì˜ dsv í•„ìš”ì—†ìŒ
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
 	dsvHeapDesc.NumDescriptors = 2;
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
@@ -881,7 +957,7 @@ void CubeMapApp::CreateRtvAndDsvDescriptorHeaps()
 void CubeMapApp::LoadTextures()
 {
 	//osb
-	//¸Ê ÅØ½ºÃÄ Ãß°¡
+	//ë§µ í…ìŠ¤ì³ ì¶”ê°€
     std::vector<std::string> texNames =
     {
         "bricksDiffuseMap",
@@ -894,7 +970,7 @@ void CubeMapApp::LoadTextures()
     };
 
 	//osb
-	//Ãß°¡µÈ ÅØ½ºÃÄ °æ·Î Á¤ÀÇ
+	//ì¶”ê°€ëœ í…ìŠ¤ì³ ê²½ë¡œ ì •ì˜
     std::vector<std::wstring> texFilenames =
     {
         L"../../Textures/bricks2.dds",
@@ -921,46 +997,43 @@ void CubeMapApp::LoadTextures()
 
 void CubeMapApp::BuildRootSignature()
 {
-	//Å¥ºê¸Ê(t0)
+	//íë¸Œë§µ(t0)
 	CD3DX12_DESCRIPTOR_RANGE texTable0;
 	texTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
 	//osb
-	//±×¸²ÀÚ¸Ê ·çÆ® ½Ã±×´ÏÃÄ ÃÊ±âÈ­(t1)
+	//ê·¸ë¦¼ìë§µ ë£¨íŠ¸ ì‹œê·¸ë‹ˆì³ ì´ˆê¸°í™”(t1)
 	CD3DX12_DESCRIPTOR_RANGE texTableShadow;
 	texTableShadow.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0);
 
-	//ssao¸Ê Àü¿ë Å×ÀÌºí(t2)
+	//ssaoë§µ ì „ìš© í…Œì´ë¸”(t2)
 	CD3DX12_DESCRIPTOR_RANGE texTableSsao;
 	texTableSsao.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0);
 
+	//diffuseë§µ ë°°ì—´ (t3~)
 	CD3DX12_DESCRIPTOR_RANGE texTable1;
 	texTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 3, 0);
 
-	//osb
-	//±×¸²ÀÚ¸Ê,ssao¸Ê Ãß°¡·Î ·çÆ® ½Ã±×´ÏÃÄ ¹è¿­ 5 -> 7À¸·Î Å©±â º¯°æ
     // Root parameter can be a table, root descriptor or root constants.
-    CD3DX12_ROOT_PARAMETER slotRootParameter[7];
+    CD3DX12_ROOT_PARAMETER slotRootParameter[8];
 
 	// Perfomance TIP: Order from most frequent to least frequent.
-    slotRootParameter[0].InitAsConstantBufferView(0);
-    slotRootParameter[1].InitAsConstantBufferView(1);
-    slotRootParameter[2].InitAsShaderResourceView(0, 1);
-	slotRootParameter[3].InitAsDescriptorTable(1, &texTable0, D3D12_SHADER_VISIBILITY_PIXEL);
+    slotRootParameter[0].InitAsConstantBufferView(0); //ObjectCB  b0
+    slotRootParameter[1].InitAsConstantBufferView(1); //SkinnedCB b1
+	slotRootParameter[2].InitAsConstantBufferView(2); //PassCB    b2
+    slotRootParameter[3].InitAsShaderResourceView(0, 1);
+	slotRootParameter[4].InitAsDescriptorTable(1, &texTable0, D3D12_SHADER_VISIBILITY_PIXEL);
 	//osb
-	//±×¸²ÀÚ¸Ê Å×ÀÌºí Ãß°¡
-	slotRootParameter[4].InitAsDescriptorTable(1, &texTableShadow, D3D12_SHADER_VISIBILITY_PIXEL);
-	//ssao¸Ê Å×ÀÌºí Ãß°¡
-	slotRootParameter[5].InitAsDescriptorTable(1, &texTableSsao, D3D12_SHADER_VISIBILITY_PIXEL);
-	//±×¿¡ µû¸¥ ÀÎµ¦½º ÀÌµ¿ 4-> 6
-	slotRootParameter[6].InitAsDescriptorTable(1, &texTable1, D3D12_SHADER_VISIBILITY_PIXEL);
+	//ê·¸ë¦¼ìë§µ í…Œì´ë¸” ì¶”ê°€
+	slotRootParameter[5].InitAsDescriptorTable(1, &texTableShadow, D3D12_SHADER_VISIBILITY_PIXEL);
+	//ssaoë§µ í…Œì´ë¸” ì¶”ê°€
+	slotRootParameter[6].InitAsDescriptorTable(1, &texTableSsao, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[7].InitAsDescriptorTable(1, &texTable1, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	auto staticSamplers = GetStaticSamplers();
 
-	//osb
-	//ÆÄ¶ó¹ÌÅÍ °³¼ö 5 -> 7
     // A root signature is an array of root parameters.
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(7, slotRootParameter,
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(8, slotRootParameter,
 		(UINT)staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -989,10 +1062,10 @@ void CubeMapApp::BuildDescriptorHeaps()
 	// Create the SRV heap.
 	//
 	//osb
-	//bricks(0),tile(1),white(2) -> diffuse ¹è¿­¿ë 5Ä­ È®º¸(0~4)
-	//±×¸²ÀÚ¸Ê(5)
-	//grass,desert,snow,sunset ¿øº»(6~9)
-	//ssao 5Ä­(10~14) ambientMap0,ambientMap1,normalMap,depthMap,randomVectorMap
+	//bricks(0),tile(1),white(2) -> diffuse ë°°ì—´ìš© 5ì¹¸ í™•ë³´(0~4)
+	//ê·¸ë¦¼ìë§µ(5)
+	//grass,desert,snow,sunset ì›ë³¸(6~9)
+	//ssao 5ì¹¸(10~14) ambientMap0,ambientMap1,normalMap,depthMap,randomVectorMap
 	//ImGui(15)
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
 	srvHeapDesc.NumDescriptors = 16;
@@ -1010,7 +1083,7 @@ void CubeMapApp::BuildDescriptorHeaps()
 	auto whiteTex = mTextures["defaultDiffuseMap"]->Resource;
 
 	//osb
-	//Àı´ë ÀÎµ¦½º ÇÔ¼ö »ç¿ë ¹æ½ÄÀ¸·Î ¹Ù²Ş
+	//ì ˆëŒ€ ì¸ë±ìŠ¤ í•¨ìˆ˜ ì‚¬ìš© ë°©ì‹ìœ¼ë¡œ ë°”ê¿ˆ
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -1029,7 +1102,7 @@ void CubeMapApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = whiteTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(whiteTex.Get(), &srvDesc, GetCpuSrv(2));
 
-	//ÀÎµ¦½º 5 - ±×¸²ÀÚ¸Ê
+	//ì¸ë±ìŠ¤ 5 - ê·¸ë¦¼ìë§µ
 	mShadowMapHeapIndex = 5;
 	mShadowMap->BuildDescriptors(
 		GetCpuSrv(mShadowMapHeapIndex),
@@ -1055,7 +1128,7 @@ void CubeMapApp::BuildDescriptorHeaps()
 		mSkyTexHeapIndices[i] = heapIndex;
 	}
 
-	//ssao Àı´ë ÀÎµ¦½º 10ºÎÅÍ 5Ä­, rtv´Â SwapChainBufferCountºÎÅÍ 3Ä­
+	//ssao ì ˆëŒ€ ì¸ë±ìŠ¤ 10ë¶€í„° 5ì¹¸, rtvëŠ” SwapChainBufferCountë¶€í„° 3ì¹¸
 	mSsaoHeapIndexStart = 10;
 	mSsao->BuildDescriptors(
 		mDepthStencilBuffer.Get(),
@@ -1076,6 +1149,24 @@ void CubeMapApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
+	//osb
+	//ìŠ¤í‚¤ë‹ ì…°ì´ë”ìš© ë§¤í¬ë¡œ 
+	// ë°°ì—´ ë§ˆì§€ë§‰ì„ null, nullë¡œ í•˜ëŠ” ì´ìœ ëŠ” d3dì»´íŒŒì¼ëŸ¬ê°€ ì´ê±¸ ì¢…ë£Œ í‘œì‹œë¡œ ì¸ì‹í•˜ê¸°ë•Œë¬¸. ë¬¸ìì—´ì˜ \0ì²˜ëŸ¼.
+	// ë¹ ëœ¨ë¦¬ë©´ ì—‰ëš±í•œ ë©”ëª¨ë¦¬ë¥¼ ì½ìŒ.
+	const D3D_SHADER_MACRO skinnedDefines[] =
+	{
+		"SKINNED", "1",
+		NULL, NULL
+	};
+
+	//osb
+	//ìŠ¤í‚¤ë‹ ê´€ë ¨ ì…°ì´ë” ì»´íŒŒì¼ ì¶”ê°€
+	//PSê°€ ì—†ëŠ” ì´ìœ ëŠ” ìŠ¤í‚¤ë‹ì€ ì •ì ì„ ë³€í™˜í•˜ëŠ” ë‹¨ê³„ì—ì„œë§Œ ì¼ì–´ë‚˜ê³  PSëŠ” ë³€í™˜ì´ ëë‚œ ê²°ê³¼ë¥¼ ë°›ì•„ì„œ ì²˜ë¦¬í•˜ê¸° ë•Œë¬¸.
+	//ê°™ì€ hlsl íŒŒì¼ì„ ë§¤í¬ë¡œë§Œ ë‹¤ë¥´ê²Œ ì¤˜ì„œ ë‘ ë²ˆ ì»´íŒŒì¼í•˜ì—¬ ì¬ì‚¬ìš©í•˜ëŠ” ë°©ì‹. ì›ë³¸ì€ í•˜ë‚˜ë¼ í•œìª½ì—ì„œ ìˆ˜ì •í•œ ì¡°ëª…ê³¼ ê°™ì€ ì²˜ë¦¬ëŠ” ë‹¤ë¥¸ ìª½ì—ë„ ë™ì¼í•˜ê²Œ ì ìš©ë¨.
+	mShaders["skinnedVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", skinnedDefines, "VS", "vs_5_1");
+	mShaders["skinnedShadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", skinnedDefines, "VS", "vs_5_1");
+	mShaders["skinnedDrawNormalsVS"] = d3dUtil::CompileShader(L"Shaders\\DrawNormals.hlsl", skinnedDefines, "VS", "vs_5_1");
+
 	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_1");
 	
@@ -1083,15 +1174,15 @@ void CubeMapApp::BuildShadersAndInputLayout()
 	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
 
 	//osb
-	//±×¸²ÀÚ¸Ê ·»´õ ÆĞ½º¿ë
+	//ê·¸ë¦¼ìë§µ ë Œë” íŒ¨ìŠ¤ìš©
 	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["shadowOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "PS", "ps_5_1");
 
-	//±×¸²ÀÚ¸Ê µğ¹ö±× ºä¿ë
+	//ê·¸ë¦¼ìë§µ ë””ë²„ê·¸ ë·°ìš©
 	mShaders["debugVS"] = d3dUtil::CompileShader(L"Shaders\\ShadowDebug.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["debugPS"] = d3dUtil::CompileShader(L"Shaders\\ShadowDebug.hlsl", nullptr, "PS", "ps_5_1");
 
-	//ssao¸Ê¿ë
+	//ssaoë§µìš©
 	mShaders["drawNormalsVS"] = d3dUtil::CompileShader(L"Shaders\\DrawNormals.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["drawNormalsPS"] = d3dUtil::CompileShader(L"Shaders\\DrawNormals.hlsl", nullptr, "PS", "ps_5_1");
 
@@ -1110,6 +1201,17 @@ void CubeMapApp::BuildShadersAndInputLayout()
         { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
+
+	//osb
+	//ìŠ¤í‚¤ë‹ ì •ì  ë ˆì´ì•„ì›ƒ
+	mSkinnedInputLayout =
+	{
+		{ "POSITION",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "NORMAL",      0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",    0, DXGI_FORMAT_R32G32_FLOAT,    0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "WEIGHTS",     0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "BONEINDICES", 0, DXGI_FORMAT_R8G8B8A8_UINT,   0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	};
 }
 
 void CubeMapApp::BuildShapeGeometry()
@@ -1282,7 +1384,7 @@ void CubeMapApp::BuildDebugQuadGeometry()
 
 	mGeometries["debugQuadGeo"] = std::move(geo);
 
-	//ssao µğ¹ö±×¿ë Äõµå Ãß°¡
+	//ssao ë””ë²„ê·¸ìš© ì¿¼ë“œ ì¶”ê°€
 	GeometryGenerator::MeshData ssaoQuad = geoGen.CreateQuad(-1.0f, 0.0f, 1.0f, 1.0f, 0.0f);
 
 	std::vector<Vertex> ssaoVertices(ssaoQuad.Vertices.size());
@@ -1522,19 +1624,63 @@ void CubeMapApp::BuildPSOs()
 	ssaoBlurPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["ssaoBlurPS"]->GetBufferPointer()), mShaders["ssaoBlurPS"]->GetBufferSize() };
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&ssaoBlurPsoDesc, IID_PPV_ARGS(&mPSOs["ssaoBlur"])));
 
+	//
+    // ìŠ¤í‚¤ë‹ ê·¸ë¦¼ì íŒ¨ìŠ¤ PSO
+    //
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinnedSmapPsoDesc = smapPsoDesc;
+	skinnedSmapPsoDesc.RasterizerState.FrontCounterClockwise = TRUE;
+	skinnedSmapPsoDesc.InputLayout = { mSkinnedInputLayout.data(), (UINT)mSkinnedInputLayout.size() };
+	skinnedSmapPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skinnedShadowVS"]->GetBufferPointer()),
+		mShaders["skinnedShadowVS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&skinnedSmapPsoDesc, IID_PPV_ARGS(&mPSOs["skinnedShadow_opaque"])));
+
+	//
+	// ìŠ¤í‚¤ë‹ ë…¸ë©€/ê¹Šì´ í”„ë¦¬íŒ¨ìŠ¤ PSO
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinnedDrawNormalsPsoDesc = drawNormalsPsoDesc;
+	skinnedDrawNormalsPsoDesc.RasterizerState.FrontCounterClockwise = TRUE;
+	skinnedDrawNormalsPsoDesc.InputLayout = { mSkinnedInputLayout.data(), (UINT)mSkinnedInputLayout.size() };
+	skinnedDrawNormalsPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skinnedDrawNormalsVS"]->GetBufferPointer()),
+		mShaders["skinnedDrawNormalsVS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&skinnedDrawNormalsPsoDesc, IID_PPV_ARGS(&mPSOs["skinnedDrawNormals"])));
+
+	//opaqueì˜ ê¹Šì´ ì„¤ì •ì„ EQUAL/ZEROë¡œ ë³€ê²½
 	opaquePsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_EQUAL;
 	opaquePsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaque"])));
+
+	//
+	// ìŠ¤í‚¤ë‹ ë©”ì¸ íŒ¨ìŠ¤ PSO
+	// opaqueê°€ EQUAL/ZEROë¡œ ë°”ë€ ë’¤ì— ë³µì‚¬í•´ì•¼ ê°™ì€ ê¹Šì´ ì„¤ì •ì„ ê°€ëŠ¥.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skinnedOpaquePsoDesc = opaquePsoDesc;
+	skinnedOpaquePsoDesc.RasterizerState.FrontCounterClockwise = TRUE;
+	skinnedOpaquePsoDesc.InputLayout = { mSkinnedInputLayout.data(), (UINT)mSkinnedInputLayout.size() };
+	skinnedOpaquePsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skinnedVS"]->GetBufferPointer()),
+		mShaders["skinnedVS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+		&skinnedOpaquePsoDesc, IID_PPV_ARGS(&mPSOs["skinnedOpaque"])));
 }
 
 void CubeMapApp::BuildFrameResources()
 {
 	//osb
-	//PassCB ½½·Ô 2°³·Î ¼öÁ¤
+	//PassCB ìŠ¬ë¡¯ 2ê°œë¡œ ìˆ˜ì •
     for(int i = 0; i < gNumFrameResources; ++i)
     {
         mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
-            2, (UINT)mAllRitems.size(), (UINT)mMaterials.size()));
+            2, (UINT)mAllRitems.size(), 1 ,(UINT)mMaterials.size()));
     }
 }
 
@@ -1712,12 +1858,12 @@ void CubeMapApp::BuildRenderItems()
 	}
 
 	//osb
-	//±×¸²ÀÚ¸Ê, ssao¿ë µğ¹ö±× ºä Äõµå Ãß°¡
+	//ê·¸ë¦¼ìë§µ, ssaoìš© ë””ë²„ê·¸ ë·° ì¿¼ë“œ ì¶”ê°€
 	auto debugQuadRitem = std::make_unique<RenderItem>();
 	debugQuadRitem->World = MathHelper::Identity4x4();
 	debugQuadRitem->TexTransform = MathHelper::Identity4x4();
 	debugQuadRitem->ObjCBIndex = (UINT)mAllRitems.size();
-	debugQuadRitem->Mat = mMaterials["bricks0"].get();  // ½ÇÁ¦ ·»´õ¸µ¿£ ¾È ¾²ÀÌ´Â ´õ¹Ì
+	debugQuadRitem->Mat = mMaterials["bricks0"].get();  // ì‹¤ì œ ë Œë”ë§ì—” ì•ˆ ì“°ì´ëŠ” ë”ë¯¸
 	debugQuadRitem->Geo = mGeometries["debugQuadGeo"].get();
 	debugQuadRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	debugQuadRitem->IndexCount = debugQuadRitem->Geo->DrawArgs["quad"].IndexCount;
@@ -1731,7 +1877,7 @@ void CubeMapApp::BuildRenderItems()
 	ssaoDebugQuadRitem->World = MathHelper::Identity4x4();
 	ssaoDebugQuadRitem->TexTransform = MathHelper::Identity4x4();
 	ssaoDebugQuadRitem->ObjCBIndex = (UINT)mAllRitems.size();
-	ssaoDebugQuadRitem->Mat = mMaterials["bricks0"].get(); // ½ÇÁ¦ ·»´õ¸µ¿£ ¾È ¾²ÀÌ´Â ´õ¹Ì
+	ssaoDebugQuadRitem->Mat = mMaterials["bricks0"].get(); // ì‹¤ì œ ë Œë”ë§ì—” ì•ˆ ì“°ì´ëŠ” ë”ë¯¸
 	ssaoDebugQuadRitem->Geo = mGeometries["ssaoDebugQuadGeo"].get();
 	ssaoDebugQuadRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	ssaoDebugQuadRitem->IndexCount = ssaoDebugQuadRitem->Geo->DrawArgs["quad"].IndexCount;
@@ -1741,36 +1887,77 @@ void CubeMapApp::BuildRenderItems()
 	mRitemLayer[(int)RenderLayer::SsaoDebug].push_back(ssaoDebugQuadRitem.get());
 	mAllRitems.push_back(std::move(ssaoDebugQuadRitem));
 
+	//ìŠ¤í‚¤ë‹ ìºë¦­í„°
+	if (mSkinnedModelInst != nullptr)
+	{
+		auto skinnedRitem = std::make_unique<RenderItem>();
+
+		XMStoreFloat4x4(&skinnedRitem->World,
+			XMMatrixScaling(0.01f, -0.01f, 0.01f) *
+			XMMatrixTranslation(.0f, 2.0f, -5.0f));
+
+		skinnedRitem->TexTransform = MathHelper::Identity4x4();
+		skinnedRitem->ObjCBIndex = (UINT)mAllRitems.size();
+		skinnedRitem->Mat = mMaterials["bricks0"].get();
+		skinnedRitem->Geo = mGeometries["skinnedGeo"].get();
+		skinnedRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+		skinnedRitem->IndexCount = skinnedRitem->Geo->DrawArgs["mesh"].IndexCount;
+		skinnedRitem->StartIndexLocation = skinnedRitem->Geo->DrawArgs["mesh"].StartIndexLocation;
+		skinnedRitem->BaseVertexLocation = skinnedRitem->Geo->DrawArgs["mesh"].BaseVertexLocation;
+
+		// ì´ ë‘˜ì´ ìˆì–´ì•¼ DrawRenderItems()ê°€ ìŠ¤í‚¤ë‹ ì•„ì´í…œìœ¼ë¡œ ì¸ì‹í•¨
+		skinnedRitem->SkinnedCBIndex = 0;
+		skinnedRitem->SkinnedModelInst = mSkinnedModelInst.get();
+
+		mRitemLayer[(int)RenderLayer::SkinnedOpaque].push_back(skinnedRitem.get());
+		mAllRitems.push_back(std::move(skinnedRitem));
+	}
+
 }
 
 void CubeMapApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
-    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
- 
+	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+	UINT skinnedCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(SkinnedConstants));
+
 	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+	auto skinnedCB = mCurrFrameResource->SkinnedCB->Resource();
 
-    // For each render item...
-    for(size_t i = 0; i < ritems.size(); ++i)
-    {
-        auto ri = ritems[i];
+	for (size_t i = 0; i < ritems.size(); ++i)
+	{
+		auto ri = ritems[i];
 
-        cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
-        cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
-        cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+		cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
+		cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
+		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex*objCBByteSize;
-
+		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress =
+			objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 		cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
 
-        cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
-    }
+		//ìŠ¤í‚¤ë‹ ì•„ì´í…œì´ë©´ ë³¸ í–‰ë ¬ ë²„í¼ë¥¼ ë°”ì¸ë”©. ì•„ë‹ˆë©´ ë„ì„ ë°”ì¸ë”©.
+		if (ri->SkinnedModelInst != nullptr)
+		{
+			D3D12_GPU_VIRTUAL_ADDRESS skinnedCBAddress =
+				skinnedCB->GetGPUVirtualAddress() + ri->SkinnedCBIndex * skinnedCBByteSize;
+			cmdList->SetGraphicsRootConstantBufferView(1, skinnedCBAddress);
+		}
+		else
+		{
+			cmdList->SetGraphicsRootConstantBufferView(1, 0);
+		}
+
+		cmdList->DrawIndexedInstanced(ri->IndexCount, 1,
+			ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+	}
 }
 void CubeMapApp::DrawSceneToShadowMap()
 {
 	mCommandList->RSSetViewports(1, &mShadowMap->Viewport());
 	mCommandList->RSSetScissorRects(1, &mShadowMap->ScissorRect());
 
-	//±×¸²ÀÚ¸ÊÀ» ±íÀÌ ¾²±â °¡´É »óÅÂ·Î ÀüÈ¯
+	//ê·¸ë¦¼ìë§µì„ ê¹Šì´ ì“°ê¸° ê°€ëŠ¥ ìƒíƒœë¡œ ì „í™˜
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
 		mShadowMap->Resource(),
 		D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE));
@@ -1780,24 +1967,97 @@ void CubeMapApp::DrawSceneToShadowMap()
 	mCommandList->ClearDepthStencilView(mShadowMap->Dsv(),
 		D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-	//ÄÃ·¯ ·»´õ Å¸°Ù ¾øÀÌ ±íÀÌ ¹öÆÛ¸¸ ¹ÙÀÎµù
+	//ì»¬ëŸ¬ ë Œë” íƒ€ê²Ÿ ì—†ì´ ê¹Šì´ ë²„í¼ë§Œ ë°”ì¸ë”©
 	mCommandList->OMSetRenderTargets(0, nullptr, false, &mShadowMap->Dsv());
 
-	//±×¸²ÀÚ ÆĞ½º Àü¿ë PassCB(1) ¹ÙÀÎµù
+	//ê·¸ë¦¼ì íŒ¨ìŠ¤ ì „ìš© PassCB(1) ë°”ì¸ë”©
 	auto passCB = mCurrFrameResource->PassCB->Resource();
 	D3D12_GPU_VIRTUAL_ADDRESS passCBAddress = passCB->GetGPUVirtualAddress() + 1 * passCBByteSize;
-	mCommandList->SetGraphicsRootConstantBufferView(1, passCBAddress);
+	mCommandList->SetGraphicsRootConstantBufferView(2, passCBAddress);
 
 	mCommandList->SetPipelineState(mPSOs["shadow_opaque"].Get());
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 
-	//´Ù½Ã ¼ÎÀÌ´õ¿¡¼­ ÀĞÀ» ¼ö ÀÖ´Â »óÅÂ·Î ÀüÈ¯
+	mCommandList->SetPipelineState(mPSOs["skinnedShadow_opaque"].Get());
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::SkinnedOpaque]);
+
+	//ë‹¤ì‹œ ì…°ì´ë”ì—ì„œ ì½ì„ ìˆ˜ ìˆëŠ” ìƒíƒœë¡œ ì „í™˜
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
 		mShadowMap->Resource(),
 		D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ));
 }
+
+
+void CubeMapApp::LoadSkinnedModel()
+{
+	FbxLoader loader;
+	loader.SetVerbose(true);
+
+	std::vector<SkinnedVertex> vertices;
+	std::vector<std::uint32_t> indices;
+	//
+	if (!loader.Load("Models\\HipHopDancing.fbx", vertices, indices, mSkinnedInfo))
+	{
+		MessageBoxA(0, loader.GetErrorMessage().c_str(), "FBX ë¡œë“œ ì‹¤íŒ¨", MB_OK);
+		return;
+	}
+
+	//-----------------------------------------------------------------
+	// ì •ì /ì¸ë±ìŠ¤ ë²„í¼ ìƒì„±
+	//-----------------------------------------------------------------
+	const UINT vbByteSize = (UINT)vertices.size() * sizeof(SkinnedVertex);
+	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
+
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "skinnedGeo";
+
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+	geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+	geo->VertexByteStride = sizeof(SkinnedVertex);
+	geo->VertexBufferByteSize = vbByteSize;
+
+	// ì •ì ì´ 16ë§Œ ê°œë¼ 16ë¹„íŠ¸ë¡œëŠ” í‘œí˜„ ë¶ˆê°€. ë°˜ë“œì‹œ 32ë¹„íŠ¸.
+	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry submesh;
+	submesh.IndexCount = (UINT)indices.size();
+	submesh.StartIndexLocation = 0;
+	submesh.BaseVertexLocation = 0;
+	geo->DrawArgs["mesh"] = submesh;
+
+	mGeometries[geo->Name] = std::move(geo);
+
+	//-----------------------------------------------------------------
+	// ì• ë‹ˆë©”ì´ì…˜ ì¸ìŠ¤í„´ìŠ¤ ìƒì„±
+	//-----------------------------------------------------------------
+	mClipNames = loader.GetClipNames();
+	if (mClipNames.empty())
+	{
+		MessageBoxA(0, "ì• ë‹ˆë©”ì´ì…˜ í´ë¦½ì´ ì—†ìŠµë‹ˆë‹¤.", "FBX ë¡œë“œ", MB_OK);
+		return;
+	}
+
+	mSkinnedClipName = mClipNames[0];
+
+	mSkinnedModelInst = std::make_unique<SkinnedModelInstance>();
+	mSkinnedModelInst->SkinnedInfo = &mSkinnedInfo;
+	mSkinnedModelInst->ClipName = mSkinnedClipName;
+	mSkinnedModelInst->TimePos = 0.0f;
+	mSkinnedModelInst->FinalTransforms.resize(mSkinnedInfo.BoneCount());
+}
 //osb
-// 6 ->7·Î º¯°æ
+// 6 ->7ë¡œ ë³€ê²½
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CubeMapApp::GetStaticSamplers()
 {
 	// Applications usually only need a handful of samplers.  So just define them all up front
@@ -1850,7 +2110,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CubeMapApp::GetStaticSamplers()
 		8);                                // maxAnisotropy
 
 	//osb
-	//±×¸²ÀÚ¸Ê¿ë ºñ±³ »ùÇÃ·¯ Ãß°¡
+	//ê·¸ë¦¼ìë§µìš© ë¹„êµ ìƒ˜í”ŒëŸ¬ ì¶”ê°€
 	const CD3DX12_STATIC_SAMPLER_DESC shadow(
 		6,                                               //shaderRegister (s6)
 		D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT,//filter
@@ -1866,7 +2126,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CubeMapApp::GetStaticSamplers()
 		pointWrap, pointClamp,
 		linearWrap, linearClamp, 
 		anisotropicWrap, anisotropicClamp,
-		shadow //±×¸²ÀÚ Ãß°¡
+		shadow //ê·¸ë¦¼ì ì¶”ê°€
 	};
 }
 
@@ -1943,7 +2203,7 @@ void CubeMapApp::SetImGui(const GameTimer& gt)
 	ImGui::Checkbox("Sky Box", &mSkyEnabled);
 	if (mSkyEnabled)
 	{
-		//dx12´Â c++±â¹İÀÌÁö¸¸ imgui´Â c±â¹İÀÌ¶ó¼­ stringÀ» const char*·Î º¯È¯ÇØ¾ßÇÔ
+		//dx12ëŠ” c++ê¸°ë°˜ì´ì§€ë§Œ imguiëŠ” cê¸°ë°˜ì´ë¼ì„œ stringì„ const char*ë¡œ ë³€í™˜í•´ì•¼í•¨
 		std::vector<const char*> skyNamesC;
 		for (auto& name : mSkyTexNames)
 			skyNamesC.push_back(name.c_str());

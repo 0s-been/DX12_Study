@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include "../../Common/d3dUtil.h"
 #include "../../Common/MathHelper.h"
@@ -25,10 +25,10 @@ struct PassConstants
     //osb
     DirectX::XMFLOAT4X4 ViewProjTex = MathHelper::Identity4x4();
     //osb
-    //ch20ÀÇ shdowmap ¼Ò½º °¡Á®¿Å
-    //¼ø¼­ ÁÖÀÇ hlslÀÇ cbuffer´Â c++±¸Á¶Ã¼¿Í ¸Ş¸ğ¸®¸¦ 1´ë1 ±×´ë·Î ¸ÅÇÎÇÏ¹Ç·Î
-    //hlslÂÊ PassConstants¿¡¼­ gInvViewProj´ÙÀ½¿¡ gShadowTransformÀ» ³ÖÀ¸´Ï
-    //c++±¸Á¶Ã¼µµ Á¤È®È÷ °°Àº ¼ø¼­·Î ¸ÂÃç¾ß gpu°¡ ¿Ã¹Ù¸¥ À§Ä¡¿¡¼­ °ªÀ» ÀĞÀ½
+    //ch20ì˜ shdowmap ì†ŒìŠ¤ ê°€ì ¸ì˜®
+    //ìˆœì„œ ì£¼ì˜ hlslì˜ cbufferëŠ” c++êµ¬ì¡°ì²´ì™€ ë©”ëª¨ë¦¬ë¥¼ 1ëŒ€1 ê·¸ëŒ€ë¡œ ë§¤í•‘í•˜ë¯€ë¡œ
+    //hlslìª½ PassConstantsì—ì„œ gInvViewProjë‹¤ìŒì— gShadowTransformì„ ë„£ìœ¼ë‹ˆ
+    //c++êµ¬ì¡°ì²´ë„ ì •í™•íˆ ê°™ì€ ìˆœì„œë¡œ ë§ì¶°ì•¼ gpuê°€ ì˜¬ë°”ë¥¸ ìœ„ì¹˜ì—ì„œ ê°’ì„ ì½ìŒ
     DirectX::XMFLOAT4X4 ShadowTransform = MathHelper::Identity4x4();
     DirectX::XMFLOAT3 EyePosW = { 0.0f, 0.0f, 0.0f };
     float cbPerObjectPad1 = 0.0f;
@@ -49,7 +49,7 @@ struct PassConstants
 };
 
 //osb
-//ssao¸¦ À§ÇÑ ±¸Á¶Ã¼ Ãß°¡
+//ssaoë¥¼ ìœ„í•œ êµ¬ì¡°ì²´ ì¶”ê°€
 struct SsaoConstants
 {
     DirectX::XMFLOAT4X4 Proj;
@@ -65,6 +65,13 @@ struct SsaoConstants
     float OcclusionFadeStart = 0.2f;
     float OcclusionFadeEnd = 2.0f;
     float SurfaceEpsilon = 0.05f;
+};
+
+//osb
+//
+struct SkinnedConstants
+{
+    DirectX::XMFLOAT4X4 BoneTransforms[96];
 };
 
 
@@ -96,7 +103,7 @@ struct FrameResource
 {
 public:
     
-    FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT materialCount);
+    FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT skinnedObjectCount, UINT materialCount);
     FrameResource(const FrameResource& rhs) = delete;
     FrameResource& operator=(const FrameResource& rhs) = delete;
     ~FrameResource();
@@ -111,6 +118,7 @@ public:
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     //osb
     std::unique_ptr<UploadBuffer<SsaoConstants>> SsaoCB = nullptr;
+    std::unique_ptr<UploadBuffer<SkinnedConstants>> SkinnedCB = nullptr;
 
 	std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 

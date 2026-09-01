@@ -67,8 +67,13 @@ cbuffer cbPerObject : register(b0)
 	uint gObjPad2;
 };
 
+cbuffer cbSkinned : register(b1)
+{
+    float4x4 gBoneTransforms[96];
+}
+
 // Constant data that varies per material.
-cbuffer cbPass : register(b1)
+cbuffer cbPass : register(b2)
 {
     float4x4 gView;
     float4x4 gInvView;
