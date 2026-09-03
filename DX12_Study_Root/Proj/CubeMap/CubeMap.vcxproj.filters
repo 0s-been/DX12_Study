@@ -78,6 +78,9 @@
     <ClCompile Include="SkinnedData.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="FBXUtil\FbxUtil.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="FrameResource.h">
@@ -144,6 +147,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SkinnedData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FBXUtil\FbxUtil.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

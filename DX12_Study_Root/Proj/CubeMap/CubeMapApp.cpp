@@ -957,7 +957,7 @@ void CubeMapApp::CreateRtvAndDsvDescriptorHeaps()
 void CubeMapApp::LoadTextures()
 {
 	//osb
-	//맵 텍스쳐 추가
+	//텍스쳐 이름 정의
     std::vector<std::string> texNames =
     {
         "bricksDiffuseMap",
@@ -1735,10 +1735,11 @@ void CubeMapApp::BuildMaterials()
 
 void CubeMapApp::BuildRenderItems()
 {
+	UINT objCBIndex = 0;
 	auto skyRitem = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&skyRitem->World, XMMatrixScaling(5000.0f, 5000.0f, 5000.0f));
 	skyRitem->TexTransform = MathHelper::Identity4x4();
-	skyRitem->ObjCBIndex = 0;
+	skyRitem->ObjCBIndex = objCBIndex++;
 	skyRitem->Mat = mMaterials["sky"].get();
 	skyRitem->Geo = mGeometries["shapeGeo"].get();
 	skyRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -1752,7 +1753,7 @@ void CubeMapApp::BuildRenderItems()
 	auto boxRitem = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 1.0f, 2.0f)*XMMatrixTranslation(0.0f, 0.5f, 0.0f));
 	XMStoreFloat4x4(&boxRitem->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
-	boxRitem->ObjCBIndex = 1;
+	boxRitem->ObjCBIndex = objCBIndex++;
 	boxRitem->Mat = mMaterials["bricks0"].get();
 	boxRitem->Geo = mGeometries["shapeGeo"].get();
 	boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -1766,7 +1767,7 @@ void CubeMapApp::BuildRenderItems()
     auto skullRitem = std::make_unique<RenderItem>();
     XMStoreFloat4x4(&skullRitem->World, XMMatrixScaling(0.4f, 0.4f, 0.4f)*XMMatrixTranslation(0.0f, 1.0f, 0.0f));
     skullRitem->TexTransform = MathHelper::Identity4x4();
-    skullRitem->ObjCBIndex = 2;
+    skullRitem->ObjCBIndex = objCBIndex++;
     skullRitem->Mat = mMaterials["skullMat"].get();
     skullRitem->Geo = mGeometries["skullGeo"].get();
     skullRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -1778,9 +1779,9 @@ void CubeMapApp::BuildRenderItems()
     mAllRitems.push_back(std::move(skullRitem));
 
     auto gridRitem = std::make_unique<RenderItem>();
-    gridRitem->World = MathHelper::Identity4x4();
-	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
-	gridRitem->ObjCBIndex = 3;
+	XMStoreFloat4x4(&gridRitem->World, XMMatrixScaling(2.0f, 1.0f, 4.0f));
+	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(8.0f, 16.0f, 1.0f));
+	gridRitem->ObjCBIndex = objCBIndex++;
 	gridRitem->Mat = mMaterials["tile0"].get();
 	gridRitem->Geo = mGeometries["shapeGeo"].get();
 	gridRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -1792,8 +1793,8 @@ void CubeMapApp::BuildRenderItems()
 	mAllRitems.push_back(std::move(gridRitem));
 
 	XMMATRIX brickTexTransform = XMMatrixScaling(1.5f, 2.0f, 1.0f);
-	UINT objCBIndex = 4;
-	for(int i = 0; i < 5; ++i)
+	
+	for(int i = 0; i < 8; ++i)
 	{
 		auto leftCylRitem = std::make_unique<RenderItem>();
 		auto rightCylRitem = std::make_unique<RenderItem>();
@@ -1898,7 +1899,7 @@ void CubeMapApp::BuildRenderItems()
 
 		skinnedRitem->TexTransform = MathHelper::Identity4x4();
 		skinnedRitem->ObjCBIndex = (UINT)mAllRitems.size();
-		skinnedRitem->Mat = mMaterials["bricks0"].get();
+		skinnedRitem->Mat = mMaterials["skullMat"].get();
 		skinnedRitem->Geo = mGeometries["skinnedGeo"].get();
 		skinnedRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
@@ -1996,9 +1997,9 @@ void CubeMapApp::LoadSkinnedModel()
 	std::vector<SkinnedVertex> vertices;
 	std::vector<std::uint32_t> indices;
 	//
-	if (!loader.Load("Models\\HipHopDancing.fbx", vertices, indices, mSkinnedInfo))
+	if (!loader.LoadFBX("Models\\HipHopDancing.fbx", vertices, indices, mSkinnedInfo))
 	{
-		MessageBoxA(0, loader.GetErrorMessage().c_str(), "FBX 로드 실패", MB_OK);
+		MessageBoxA(0, loader.GetErrorMsg().c_str(), "FBX 로드 실패", MB_OK);
 		return;
 	}
 

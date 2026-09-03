@@ -170,6 +170,7 @@
     <ClCompile Include="..\..\Common\MathHelper.cpp" />
     <ClCompile Include="CubeMapApp.cpp" />
     <ClCompile Include="FBXUtil\FbxLoader.cpp" />
+    <ClCompile Include="FBXUtil\FbxUtil.cpp" />
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="ImGUI\backends\imgui_impl_dx12.cpp" />
     <ClCompile Include="ImGUI\backends\imgui_impl_win32.cpp" />
@@ -192,6 +193,7 @@
     <ClInclude Include="..\..\Common\MathHelper.h" />
     <ClInclude Include="..\..\Common\UploadBuffer.h" />
     <ClInclude Include="FBXUtil\FbxLoader.h" />
+    <ClInclude Include="FBXUtil\FbxUtil.h" />
     <ClInclude Include="FrameResource.h" />
     <ClInclude Include="ImGUI\backends\imgui_impl_dx12.h" />
     <ClInclude Include="ImGUI\backends\imgui_impl_win32.h" />
