@@ -111,7 +111,6 @@ private:
     bool ExtractMesh(FbxMesh* mesh,
         std::vector<SkinnedVertex>& vertices,
         std::vector<std::uint32_t>& indices);
-
     //SkinnedVertex의 본 인덱스,가중치 세팅
     void FillSkinData(int cpIndex, SkinnedVertex& vertex) const;
 
@@ -128,7 +127,7 @@ private:
     void CheckAnimationInfo(
         const std::unordered_map<std::string, AnimationClip>& animations) const;
 
-    //애니메이션 디버깅용
+    //애니메이션 커브 존재 여부 확인
     bool HasAnimationCurves(FbxAnimStack* animStack) const;
 
     // fbxsdk관련 자원 해제

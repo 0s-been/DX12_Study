@@ -29,7 +29,7 @@ void FbxLoader::Cleanup()
 }
 
 
-//메인 함수
+//메인 로직 함수
 bool FbxLoader::LoadFBX(const std::string& filename,
                      std::vector<SkinnedVertex>& vertices,
                      std::vector<std::uint32_t>& indices,
@@ -50,7 +50,7 @@ bool FbxLoader::LoadFBX(const std::string& filename,
     // 반드시 메시를 찾기 전에 호출해야 함
     PreprocessScene();
 
-
+ 
     FbxMesh* mesh = FindFirstMesh(mScene->GetRootNode());
     if (mesh == nullptr)
     {
@@ -60,7 +60,7 @@ bool FbxLoader::LoadFBX(const std::string& filename,
     }
 
     // 스켈레톤
-    // 스킨 가중치와 애니메이션이 본 인덱스를 참조하므로 가장 먼저 확정한다.
+    // 스킨 가중치와 애니메이션이 본 인덱스를 참조하므로 가장 먼저 확정한다
     BuildSkeleton();
     if (mBoneHierarchy.empty())
     {
@@ -71,7 +71,7 @@ bool FbxLoader::LoadFBX(const std::string& filename,
     CheckSkeletonInfo();
 
     // 스킨 가중치 추출
-    // 반드시 BuildSkeleton을 통해 본 상속 계층을 확정한 뒤에 호출해야 함.
+    // 반드시 BuildSkeleton을 통해 본 상속 계층을 확정한 뒤에 호출해야 함
     if (ExtractSkinWeights(mesh) == false)
     {
         Cleanup();
@@ -80,7 +80,7 @@ bool FbxLoader::LoadFBX(const std::string& filename,
     CheckSkinInfo();
 
     // 메시 추출( mControlPointWeights)
-    // ExtractSkinWeights을 통해 추출한 mControlPointWeights를 사용하므로 반드시 그 뒤에 호출해야 함.
+    // ExtractSkinWeights을 통해 추출한 mControlPointWeights를 사용하므로 반드시 그 뒤에 호출해야 함
     if (ExtractMesh(mesh, vertices, indices) == false)
     {
         Cleanup();
@@ -89,7 +89,7 @@ bool FbxLoader::LoadFBX(const std::string& filename,
     CheckMeshInfo(mesh, vertices, indices);
 
     // 애니메이션 추출
-    // 해시맵을 통해 이름을 애니메이션을 관리함.
+    // 해시맵을 통해 이름으로 애니메이션을 관리
     std::unordered_map<std::string, AnimationClip> animations;
     if (ExtractAnimations(animations) == false)
     {
@@ -102,7 +102,7 @@ bool FbxLoader::LoadFBX(const std::string& filename,
     skinnedInfo.Set(mBoneHierarchy, mBoneOffsets, animations);
 
     // SDK 객체 전부 해제
-    // 이후 dx12쪽에서 렌더링은 SDK를 전혀 몰라도 됨.
+    // 이후 dx12쪽에서 렌더링은 FBXSDK를 전혀 몰라도 됨
     Cleanup();
 
     return true;
@@ -615,13 +615,7 @@ bool FbxLoader::ExtractAnimations(
     return true;
 }
 
-//---------------------------------------------------------------------------------------
-// 클립 하나를 균일 간격으로 샘플링한다.
-//
-// FBX 커브는 본마다 키 시각이 제각각이지만, AnimationClip::Interpolate()는
-// 모든 본을 같은 시각 t로 조회하는 구조다. 고정 간격으로 미리 뽑아두면
-// 이 구조에 정확히 맞고, 커브가 아예 없는 본도 바인드 포즈 값으로 자동으로 채워진다.
-//---------------------------------------------------------------------------------------
+// 클립을 균일하게 나누는 함수
 void FbxLoader::SampleClip(FbxAnimStack* animStack, AnimationClip& clip)
 {
     // 씬에 현재 어떤 클립을 기준으로 할 것인지 명시해줌
@@ -750,7 +744,7 @@ bool FbxLoader::HasAnimationCurves(FbxAnimStack* animStack) const
 //스켈레톤의 본 개수와 비정상적인 계층 구조를 가진 본의 개수 체크
 void FbxLoader::CheckSkeletonInfo() const
 {
-    if (!mVerbose)
+    if (mVerbose == false)
         return;
 
     int violation = 0;
@@ -771,7 +765,7 @@ void FbxLoader::CheckSkeletonInfo() const
 //스킨의 cp개수와 스키닝이 된 것과 안 된 스킨의 개수 체크
 void FbxLoader::CheckSkinInfo() const
 {
-    if (!mVerbose)
+    if (mVerbose == false)
         return;
 
     int skinned = 0;
@@ -798,7 +792,7 @@ void FbxLoader::CheckMeshInfo(FbxMesh* mesh,
                              const std::vector<SkinnedVertex>& vertices,
                              const std::vector<std::uint32_t>& indices) const
 {
-    if (!mVerbose)
+    if (mVerbose == false)
         return;
 
     std::ostringstream oss;
@@ -815,7 +809,7 @@ void FbxLoader::CheckMeshInfo(FbxMesh* mesh,
 void FbxLoader::CheckAnimationInfo(
     const std::unordered_map<std::string, AnimationClip>& animations) const
 {
-    if (!mVerbose)
+    if (mVerbose == false)
         return;
 
     std::ostringstream oss;
